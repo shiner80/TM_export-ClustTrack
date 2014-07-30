@@ -1,0 +1,123 @@
+function [MSD, MSD_COEF] = calculateMSD_AD(tracks, tlist, FitThreshold, PlotFlag)
+%
+% [MSD, MSD_COEF] = calculateMSD_AD(tracks, tlist, FitThreshold, PlotFlag)
+%____________________________________________
+% The function calculate the mean squared displacement plot for track data.
+% The MSD plot is fitted with an anomalous diffusion model between the first MSD point and a
+% threshold defined by FitThreshold.
+%
+% INPUT
+% tracks: track input with the following structure:
+% tracks(:,1) =  x_coordinate (in microns)
+% tracks(:,2) =  y_coordinate (in microns)
+% tracks(:,3) =  frame identifier
+% tracks(:,4) =  particle identifier
+%
+% tlist: Column vector with the times for which the MSD is calculated.
+% FitThreshold: Scalar with the threshold for MSD linear fitting.
+% PlotFLag: 1 if you want a plot, 0 if not.
+%
+% OUTPUT
+% MSD is a matrix with: 
+% MSD(:,1) = tlist
+% MSD(:,2) = Mean squared displacement
+% MSD(:,3) = Standard error of the MSD
+% MSD(:,4) = Best anomalous fit fit of the MSD
+%
+% MSD_COEF is a two vector element: 
+% MSD_COEF(:,1) = D
+% MSD_COEF(:,2) = a
+%____________________________________________
+%
+% 2014. Davide Mazza. San Raffaele Scientific Institute. Milan. Italy
+%____________________________________________
+
+
+% CALCULATE MEAN SQUARED DISPLACEMENTS
+
+% Initialize useful variables
+jd = [];                       % temp variable containing the jumps;
+nTracks = max(tracks(:,4));                 % number of tracks;
+nJumps = length(tlist);                 
+TrackLength = zeros(nTracks, 1);            % Initialize vector containing track length;
+MSD = zeros(nJumps, 4);
+MSD(:,1) = tlist;
+
+
+for j = 1:nJumps                 % for loop on different jump sizes 
+                                 % (1 frame, 2 frames, etc)
+    Goodtracks = 0;
+    for i = 1:nTracks;              % loop on the different tracks.
+
+        idx = find(tracks(:,4) == i);  % find the track identified by i
+        TrackLength(i) = length(idx);
+        
+         if  TrackLength(i) >j
+             Goodtracks = Goodtracks + 1;
+            jd_temp_x = tracks(idx,1);
+            jd_temp_y = tracks(idx,2);
+ 
+            jd_temp = sqrt((jd_temp_x(j+1:end)- jd_temp_x(1:end-j)).^2 + ...
+                      (jd_temp_y(j+1:end)- jd_temp_y(1:end-j)).^2);
+    
+            jd =  cat(1,jd,jd_temp);
+            
+         end
+    end
+    
+    if ~isempty(jd)
+         MSD(j,2) = mean(jd.^2);
+         MSD(j,3) = std(jd.^2)/sqrt(length(jd));
+         MSD(j,5) = length(jd);
+         MSD(j,6) = Goodtracks;
+    end
+    
+    jd = [];
+end
+
+% Anomalous diffusion Fit of MSD
+
+
+fitfun = @(par) An_MSD_Fun(par, MSD(1:FitThreshold,1)) - MSD(1:FitThreshold,2);
+
+par0 = [0.01, 0.7];
+lb = [0 0];
+ub = [Inf, 3];
+
+
+MSD_COEF = lsqnonlin(fitfun,par0,lb,ub);
+MSD(:,4) = An_MSD_Fun(MSD_COEF, tlist);
+
+
+% PLOT MEAN sQUARED DISPLACEMENT AND FIT
+if PlotFlag
+    
+    figure;
+    box on;
+    
+    hold on;
+    errorbar(MSD(:,1),MSD(:,2),MSD(:,3),'ok');
+    plot(MSD(:,1),MSD(:,4),'r');
+    
+    plot([MSD(FitThreshold,1) MSD(FitThreshold,1)],[0 1.1*max(MSD(:,2))],'--k')
+    
+    xlim([0 1.1*max(MSD(:,1))]);
+    ylim([0 1.1*max(MSD(:,2))]);
+
+    xlabel('Time[s]', 'FontSize', 10);
+    ylabel('MSD [\mum]', 'FontSize', 10);
+    title({'Linear fit of mean square displacement',...
+        [],...
+       ['D = ', num2str(MSD_COEF(1),3),' \mum^2/s',...
+        '    A_0 =', num2str(MSD_COEF(2),3)]}, 'FontSize',10);
+end
+
+
+function y = An_MSD_Fun(par, x)
+
+    D = par(1);
+    alpha = par(2);
+    y = 4*D*(x.^alpha);
+    
+
+        
